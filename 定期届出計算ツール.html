@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>定期届出 自動集計プラットフォーム</title>
+  
+  <!-- Tailwind CSS (デザイン用) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React (機能用) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* ブラウザのデフォルトのスクロールバーを少し綺麗に */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // --- アイコンコンポーネント (Lucideの代わり) ---
+    const IconSpreadsheet = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>;
+    const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
+    const IconCalendar = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
+    const IconFileText = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>;
+    const IconCalculator = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>;
+    const IconInfo = () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>;
+
+    // --- 追加: Tooltipコンポーネント ---
+    const Tooltip = ({ text }) => (
+      <div className="relative flex items-center group cursor-help ml-1">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 hover:text-blue-700 transition-colors"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-56 sm:w-64 p-3 bg-gray-800 text-white text-xs rounded shadow-lg z-[100] font-normal text-left whitespace-normal leading-relaxed pointer-events-none">
+          {text}
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+        </div>
+      </div>
+    );
+
+    const ReportCalculator = () => {
+      // --- State ---
+      const [periodStart, setPeriodStart] = useState('');
+      const [periodEnd, setPeriodEnd] = useState('');
+      const [targetMonths, setTargetMonths] = useState(12);
+      const [bonusTotal, setBonusTotal] = useState('');
+      const [prevYearSalary, setPrevYearSalary] = useState('');
+
+      const createEmptyMonthlyData = () => Array.from({ length: 12 }, () => ({
+        workDays: '', scheduledHours: '', overtimeHours: '', baseSalary: '', overtimePay: '',
+        commuteAllowance: '', attendanceAllowance: '', familyAllowance: '', foodDeduction: '',
+        housingDeduction: '', taxDeduction: '', otherDeduction: '',
+      }));
+
+      const [monthlyData, setMonthlyData] = useState(createEmptyMonthlyData());
+
+      // --- Handlers ---
+      const handleMonthlyChange = (index, field, value) => {
+        if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
+        const newData = [...monthlyData];
+        newData[index][field] = value;
+        setMonthlyData(newData);
+      };
+
+      const loadSampleData = () => {
+        setPeriodStart('2025-04-01');
+        setPeriodEnd('2026-03-31');
+        setTargetMonths(12);
+        setBonusTotal('356667'); 
+        setPrevYearSalary('185000'); 
+
+        const sampleData = Array.from({ length: 12 }, (_, i) => {
+          const baseWorkDays = 20 + (i % 3 === 0 ? 1 : 0);
+          return {
+            workDays: String(baseWorkDays),
+            scheduledHours: String(baseWorkDays * 8),
+            overtimeHours: String(10 + (i % 5)),
+            baseSalary: String(210000 + (i % 2 === 0 ? 5000 : 0)),
+            overtimePay: String(15000 + (i % 5) * 1500),
+            commuteAllowance: '5000', attendanceAllowance: '0', familyAllowance: '0',
+            foodDeduction: '0', housingDeduction: '30000', taxDeduction: '40000', otherDeduction: '0',
+          };
+        });
+        setMonthlyData(sampleData);
+      };
+
+      const clearData = () => {
+        if(window.confirm('入力されたデータをすべてクリアしますか？')) {
+          setMonthlyData(createEmptyMonthlyData());
+          setPeriodStart(''); setPeriodEnd(''); setTargetMonths(12); setBonusTotal(''); setPrevYearSalary('');
+        }
+      };
+
+      // --- Calculations ---
+      const safeNum = (val) => {
+        const num = Number(val);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const results = useMemo(() => {
+        const calcAverage = (field) => {
+          const sum = monthlyData.reduce((acc, curr) => acc + safeNum(curr[field]), 0);
+          return targetMonths > 0 ? sum / targetMonths : 0;
+        };
+
+        const roundToInt = (val) => Math.round(val);
+
+        const averages = {
+          workDays: roundToInt(calcAverage('workDays')),
+          scheduledHours: roundToInt(calcAverage('scheduledHours')),
+          overtimeHours: roundToInt(calcAverage('overtimeHours')),
+          baseSalary: roundToInt(calcAverage('baseSalary')),
+          overtimePay: roundToInt(calcAverage('overtimePay')),
+          commuteAllowance: roundToInt(calcAverage('commuteAllowance')),
+          attendanceAllowance: roundToInt(calcAverage('attendanceAllowance')),
+          familyAllowance: roundToInt(calcAverage('familyAllowance')),
+          foodDeduction: roundToInt(calcAverage('foodDeduction')),
+          housingDeduction: roundToInt(calcAverage('housingDeduction')),
+          taxDeduction: roundToInt(calcAverage('taxDeduction')),
+          otherDeduction: roundToInt(calcAverage('otherDeduction')),
+        };
+
+        const bonusAvg = targetMonths > 0 ? roundToInt(safeNum(bonusTotal) / targetMonths) : 0;
+
+        const deductionsTotalAvg = averages.overtimePay + averages.commuteAllowance + averages.attendanceAllowance + averages.familyAllowance;
+        const prevYearBaseAvg = averages.baseSalary - deductionsTotalAvg;
+        const prevPrevYearBase = safeNum(prevYearSalary);
+
+        let raiseRate = 0;
+        if (prevPrevYearBase > 0) {
+          raiseRate = ((prevYearBaseAvg - prevPrevYearBase) / prevPrevYearBase) * 100;
+        }
+
+        const formattedRaiseRate = (Math.round(raiseRate * 10) / 10).toFixed(1);
+
+        return { ...averages, bonusAvg, prevYearBaseAvg, raiseRate: formattedRaiseRate };
+      }, [monthlyData, targetMonths, bonusTotal, prevYearSalary]);
+
+
+      // --- UI Components ---
+      const TableInput = ({ value, onChange, placeholder = "0" }) => (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full px-2 py-1 text-sm text-right border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 border"
+          placeholder={placeholder}
+        />
+      );
+
+      return (
+        <div className="min-h-screen p-4 md:p-6">
+          <div className="max-w-7xl mx-auto space-y-6">
+            
+            {/* Header */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <IconSpreadsheet />
+                  定期届出 自動集計プラットフォーム
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">特定技能外国人の「受入れ・活動・支援実施状況に係る届出」作成支援ツール</p>
+              </div>
+              <div className="mt-4 md:mt-0 flex gap-2">
+                <button onClick={clearData} className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                  クリア
+                </button>
+                <button onClick={loadSampleData} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                  <IconPlay />
+                  サンプルデータ入力
+                </button>
+              </div>
+            </div>
+
+            {/* 作成要領に基づく注意事項 (新規追加) */}
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-r-lg shadow-sm border border-yellow-100/50">
+              <div className="flex">
+                <div className="flex-shrink-0 mt-0.5">
+                  <svg className="h-5 w-5 text-yellow-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-bold text-yellow-800">作成要領 記入時の主な注意事項</h3>
+                  <div className="mt-2 text-sm text-yellow-700 space-y-1">
+                    <ul className="list-disc pl-4 space-y-1.5">
+                      <li><strong>対象月数:</strong> 月の途中で受入れを開始・終了した場合はその月を含めずに平均値を算出します。</li>
+                      <li><strong>給与額(4):</strong> 定期届出の項目(①〜④)以外の手当(休業手当等)を支給している場合、項目名は修正せず「(4)現金給与額」に合算して含めてください。</li>
+                      <li><strong>超過給与①:</strong> 割増分だけでなく、時間外手当分の全額(1.25倍等)を記載します。深夜労働は所定内労働に含めません。</li>
+                      <li><strong>昇給率(7):</strong> 同一在留資格で継続して2年以上受け入れている場合のみ記載が必要です。（例：102.7%ではなく純粋な上昇率の 2.7% を記載）</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
+              {/* Main Content (Left) */}
+              <div className="w-full lg:w-2/3 space-y-6 flex-grow">
+                {/* 1. 基本設定セクション */}
+                <section className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                  <h2 className="text-lg font-semibold border-b pb-2 mb-4 flex items-center gap-2">
+                    <IconCalendar /> 1. 基本設定
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">定期報告期間</label>
+                      <div className="flex items-center gap-2">
+                        <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm border p-2" />
+                        <span className="text-gray-500">〜</span>
+                        <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm border p-2" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">対象となる月数</label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" min="1" max="12" value={targetMonths} onChange={(e) => setTargetMonths(safeNum(e.target.value))} className="block w-24 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm border p-2" />
+                        <span className="text-sm text-gray-500">ヶ月分</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">※受入開始/終了で1ヶ月に満たない月は除外</p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 2. 実績データ入力セクション */}
+                <section className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                  <h2 className="text-lg font-semibold border-b pb-2 mb-4 flex items-center gap-2">
+                    <IconFileText /> 2. 実績データ入力 (賃金台帳)
+                  </h2>
+                  <div className="overflow-x-auto pb-4">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-gray-300 px-3 py-2 whitespace-nowrap sticky left-0 z-10 bg-gray-100 min-w-[80px]">月</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="flex items-center text-center leading-tight">(1) 実労働<br/>日数<Tooltip text="有給休暇を取得し全く就労していない日や休業日は含まれません。短時間休業で就労した日や休日労働の日は含まれます。" /></div>
+                            </div>
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="flex items-center text-center leading-tight">(2) 所定内<br/>実労働時間<Tooltip text="実労働時間から超過実労働時間を引いたもの。休業日を除外して計算します（短時間休業での就労時間は含みます）。" /></div>
+                            </div>
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="flex items-center text-center leading-tight">(3) 超過<br/>実労働時間<Tooltip text="早出、残業、休日労働等の時間数。" /></div>
+                            </div>
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[120px] bg-blue-50">
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="flex items-center text-center leading-tight">(4) 現金給与額<br/>(きまって支給)<Tooltip text="①〜④以外の手当（休業手当等）もここに含めます。定期届出上の手当名①〜④は修正しないでください。" /></div>
+                            </div>
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="flex items-center text-center leading-tight">①超過給与<br/>(時間外等)<Tooltip text="割増分のみではなく時間外手当分全額(1.25倍等)を記載してください。" /></div>
+                            </div>
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">②通勤手当</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">③精皆勤手当</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px]">④家族手当</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px] bg-red-50">(6)① 食費<br/>(控除)</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px] bg-red-50">② 居住費<br/>(控除)</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px] bg-red-50">③ 税・社保<br/>(控除)</th>
+                          <th className="border border-gray-300 px-3 py-2 min-w-[100px] bg-red-50">④ その他<br/>(控除)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyData.map((data, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="border border-gray-300 px-3 py-2 text-center sticky left-0 z-10 bg-white font-medium text-gray-600">{index + 1}ヶ月目</td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.workDays} onChange={(v) => handleMonthlyChange(index, 'workDays', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.scheduledHours} onChange={(v) => handleMonthlyChange(index, 'scheduledHours', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.overtimeHours} onChange={(v) => handleMonthlyChange(index, 'overtimeHours', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1 bg-blue-50/30"><TableInput value={data.baseSalary} onChange={(v) => handleMonthlyChange(index, 'baseSalary', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.overtimePay} onChange={(v) => handleMonthlyChange(index, 'overtimePay', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.commuteAllowance} onChange={(v) => handleMonthlyChange(index, 'commuteAllowance', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.attendanceAllowance} onChange={(v) => handleMonthlyChange(index, 'attendanceAllowance', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1"><TableInput value={data.familyAllowance} onChange={(v) => handleMonthlyChange(index, 'familyAllowance', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1 bg-red-50/30"><TableInput value={data.foodDeduction} onChange={(v) => handleMonthlyChange(index, 'foodDeduction', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1 bg-red-50/30"><TableInput value={data.housingDeduction} onChange={(v) => handleMonthlyChange(index, 'housingDeduction', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1 bg-red-50/30"><TableInput value={data.taxDeduction} onChange={(v) => handleMonthlyChange(index, 'taxDeduction', v)} /></td>
+                            <td className="border border-gray-300 px-2 py-1 bg-red-50/30"><TableInput value={data.otherDeduction} onChange={(v) => handleMonthlyChange(index, 'otherDeduction', v)} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4">特別項目の入力</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="flex items-center text-sm font-medium text-gray-700 mb-1">
+                          (5) 定期報告期間中の賞与等 特別給与額 <span className="text-xs text-gray-500 font-normal ml-1">※年間の合計額</span>
+                          <Tooltip text="賞与、一時的支給（大入袋等）、算定期間が3ヶ月を超える給与（半年ごとの通勤手当等）などを含みます。複数人報告の場合は人数の平均額から年間計を算出してください。" />
+                        </label>
+                        <div className="relative">
+                          <input type="text" value={bonusTotal} onChange={(e) => { if (e.target.value === '' || /^\d*\.?\d*$/.test(e.target.value)) setBonusTotal(e.target.value); }} className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm border p-2 text-right pr-8" placeholder="0" />
+                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><span className="text-gray-500 sm:text-sm">円</span></div>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="flex items-center text-sm font-medium text-gray-700 mb-1">
+                          (7) 昇給率計算用：前々年度の基本給等 <span className="text-xs text-gray-500 font-normal ml-1">※月額平均</span>
+                          <Tooltip text="同一の在留資格で継続して2年以上同一の特定技能外国人を受け入れている場合のみ入力してください。前々年度の ((4)きまって支給する現金給与 - ①〜④手当) の額を入力します。" />
+                        </label>
+                        <div className="relative">
+                          <input type="text" value={prevYearSalary} onChange={(e) => { if (e.target.value === '' || /^\d*\.?\d*$/.test(e.target.value)) setPrevYearSalary(e.target.value); }} className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm border p-2 text-right pr-8" placeholder="0" />
+                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><span className="text-gray-500 sm:text-sm">円</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Result Panel (Right - Sticky) */}
+              <div className="w-full lg:w-1/3 lg:sticky lg:top-6 space-y-6">
+                <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-blue-600">
+                  <h2 className="text-xl font-bold border-b pb-3 mb-4 flex items-center gap-2">
+                    <IconCalculator /> 3. 届出書 転記用データ
+                  </h2>
+                  <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm flex items-start gap-2 mb-6">
+                    <div className="mt-0.5"><IconInfo /></div>
+                    <p>以下の数値は、作成要領の端数処理ルール（平均値算出後に四捨五入）を適用した最終数値です。このまま届出書に転記してください。</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">労働時間 (月平均)</h3>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-gray-600">(1) 実労働日数</div><div className="text-right font-mono font-medium">{results.workDays} 日</div>
+                        <div className="text-gray-600">(2) 所定内実労働</div><div className="text-right font-mono font-medium">{results.scheduledHours} 時間</div>
+                        <div className="text-gray-600">(3) 超過実労働</div><div className="text-right font-mono font-medium">{results.overtimeHours} 時間</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">給与 (月平均)</h3>
+                      <div className="grid grid-cols-2 gap-2 text-sm mb-2">
+                        <div className="text-gray-900 font-semibold">(4) 現金給与額</div><div className="text-right font-mono font-bold text-blue-700">{results.baseSalary.toLocaleString()} 円</div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-xs pl-4 border-l-2 border-gray-200">
+                        <div className="text-gray-500">① 超過労働給与</div><div className="text-right font-mono text-gray-600">{results.overtimePay.toLocaleString()} 円</div>
+                        <div className="text-gray-500">② 通勤手当</div><div className="text-right font-mono text-gray-600">{results.commuteAllowance.toLocaleString()} 円</div>
+                        <div className="text-gray-500">③ 精皆勤手当</div><div className="text-right font-mono text-gray-600">{results.attendanceAllowance.toLocaleString()} 円</div>
+                        <div className="text-gray-500">④ 家族手当</div><div className="text-right font-mono text-gray-600">{results.familyAllowance.toLocaleString()} 円</div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm mt-3 pt-3 border-t border-gray-200">
+                        <div className="text-gray-600">(5) 賞与等 月平均</div><div className="text-right font-mono font-medium">{results.bonusAvg.toLocaleString()} 円</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-50 p-3 rounded border border-gray-100">
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">(6) 控除額 (月平均)</h3>
+                      <div className="grid grid-cols-2 gap-2 text-sm pl-2">
+                        <div className="text-gray-600">① 食費</div><div className="text-right font-mono font-medium">{results.foodDeduction.toLocaleString()} 円</div>
+                        <div className="text-gray-600">② 居住費</div><div className="text-right font-mono font-medium">{results.housingDeduction.toLocaleString()} 円</div>
+                        <div className="text-gray-600">③ 税・社会保険料</div><div className="text-right font-mono font-medium">{results.taxDeduction.toLocaleString()} 円</div>
+                        <div className="text-gray-600">④ その他</div><div className="text-right font-mono font-medium">{results.otherDeduction.toLocaleString()} 円</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200 mt-6">
+                      <h3 className="text-sm font-bold text-green-800 mb-3 flex items-center justify-between">
+                        (7) 昇給率 <span className="text-2xl font-black text-green-600">{results.raiseRate} %</span>
+                      </h3>
+                      <div className="text-xs text-green-700 space-y-1">
+                        <p className="flex justify-between border-b border-green-200/50 pb-1"><span>前年度 基本給等平均:</span><span className="font-mono">{results.prevYearBaseAvg.toLocaleString()} 円</span></p>
+                        <p className="flex justify-between pt-1"><span>前々年度 基本給等平均:</span><span className="font-mono">{safeNum(prevYearSalary).toLocaleString()} 円</span></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ReportCalculator />);
+  </script>
+</body>
+</html>
